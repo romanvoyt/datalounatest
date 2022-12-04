@@ -4,3 +4,7 @@ sklearn
 xgboost
 plotly
 scipy
+optuna
+tabpfn
+torch
+catboost
