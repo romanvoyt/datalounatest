@@ -311,20 +311,46 @@ def train_test_nn(df1, df2, epochs=100, batch_size=64, lr = 0.001):
 
 def train_test_tabpfn(df1, df2):
     X, y = preprocess_data(df1, df2)
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.33, random_state=1337)
+
+    lsvc = LinearSVC(C=0.01, penalty='l1', dual=False, max_iter=15000).fit(X, y.values.ravel())
+
+    model = SelectFromModel(lsvc, prefit=True)
+    X_new = model.fit_transform(X)
+    X_train, X_test, y_train, y_test = train_test_split(X_new, y.values.ravel(), test_size=0.33, random_state=1337)
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.fit_transform(X_test)
 
-    X_train_new = SelectKBest(chi2, k=64).fit_transform(X_train_scaled, y_train)
-    X_test_new = SelectKBest(chi2, k=64).fit_transform(X_test_scaled, y_test)
 
-    classifier = TabPFNClassifier(device='cuda:0', N_ensemble_configurations=32)
-    classifier.fit(X_train_new, y_train)
+    # X_train_new = SelectKBest(chi2, k=64).fit_transform(X_train_scaled, y_train)
+    # X_test_new = SelectKBest(chi2, k=64).fit_transform(X_test_scaled, y_test)
 
-    y_eval, p_eval = classifier.predict(X_test_new, return_winning_probability=True)
+    classifier = TabPFNClassifier(device='cpu', N_ensemble_configurations=32)
+    classifier.fit(X_train_scaled, y_train)
+
+    y_eval, p_eval = classifier.predict(X_test_scaled, return_winning_probability=True)
 
     print('Accuracy', accuracy_score(y_test, y_eval))
+
+    fpr, tpr, thresholds = roc_curve(y_test, y_eval)
+
+    fig = px.area(
+        x=fpr, y=tpr,
+        title=f'ROC Curve (AUC={auc(fpr, tpr):.4f})',
+        labels=dict(x='False Positive Rate', y='True Positive Rate'),
+        width=700, height=500
+    )
+    fig.add_shape(
+        type='line', line=dict(dash='dash'),
+        x0=0, x1=1, y0=0, y1=1
+    )
+
+    fig.update_yaxes(scaleanchor="x", scaleratio=1)
+    fig.update_xaxes(constrain='domain')
+    fig.show()
+
+    print(classification_report(y_test, y_eval))
+    print(confusion_matrix(y_test, y_eval))
 
 
 if __name__ == '__main__':
