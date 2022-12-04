@@ -3,17 +3,13 @@ import numpy as np
 import plotly.express as px
 
 import optuna
-from pandas.core.common import random_state
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 
-from sklearn.feature_selection import SelectKBest, chi2
-from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import confusion_matrix, classification_report
 import matplotlib.pyplot as plt
 
 from sklearn.model_selection import train_test_split
@@ -22,8 +18,6 @@ from sklearn.metrics import roc_curve, auc
 from sklearn.feature_selection import SelectFromModel
 
 # classification models
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.tree import DecisionTreeClassifier
 from sklearn.svm import LinearSVC
 import xgboost as xgb
 from catboost import CatBoostClassifier
@@ -38,30 +32,7 @@ from sklearn.feature_selection import mutual_info_classif, f_classif
 
 from neuralnet. binary_feedforward_net import BinaryNN, TrainData, TestData, binary_acc
 from utils.visualization import show_roc_auc_curve
-
-
-def preprocess_data(df1, df2):
-    result = pd.merge(df1, df2, on=['map_id'])
-    result.info()
-    team1_df = result[:][::2]
-    team2_df = result[:][1::2]
-    preprocessed_df = pd.merge(team1_df, team2_df, on=['map_id'])
-    print(preprocessed_df.info())
-    preprocessed_df.isnull().values.any().sum()
-    preprocessed_df.dropna(inplace=True)
-    preprocessed_df = pd.get_dummies(preprocessed_df, columns=["map_name_x_x"], prefix_sep="_", drop_first=True)
-    print(preprocessed_df.head())
-    y = pd.DataFrame(preprocessed_df['who_win_x'])
-    print(f'{y.shape} y shape')
-    preprocessed_df.drop(
-        ['map_id', 'team1_id_x', 'team1_id_y', 'team2_id_x', 'team2_id_y', 'who_win_x', 'who_win_y', 'map_name_x_y',
-         'map_name_y_x', 'map_name_y_y', 'p1_id_x', 'p2_id_x', 'p3_id_x',
-         'p3_id_x', 'p4_id_x', 'p5_id_x', 'p1_id_y', 'p2_id_y', 'p3_id_y',
-         'p3_id_y', 'p4_id_y', 'p5_id_y'], inplace=True, axis=1)
-
-    X = pd.DataFrame(preprocessed_df)
-
-    return X, y
+from preprocessing.preprocessing import preprocess_data
 
 
 def BuildModel(best_alg, x_train, y_train, x_test, kf, ntrain, ntest, nclass, nfolds):
@@ -94,8 +65,6 @@ def train_and_test_model(model, x_train, y_train, x_test, y_test, kf, ntrain, nt
     best_lr = thresholds[f1_sc.argmax()]
     show_accuracy(pred_train[:, 1], y_train, labels, best_lr, nclass)
     show_accuracy(pred_test[:, 1], y_test, labels, best_lr, nclass)
-    show_roc_auc_curve(y_train, pred_train[:, 1])
-    show_roc_auc_curve(y_test, pred_test[:, 1])
 
 
 def show_accuracy(Xr, y, labels, best, nclass):
@@ -109,22 +78,7 @@ def show_accuracy(Xr, y, labels, best, nclass):
     print(classification_report(y, pred, target_names=labels, digits=4, zero_division=True))
     print(confusion_matrix(y, pred, labels=range(nclass)))
 
-    fpr, tpr, thresholds = roc_curve(y, pred)
-
-    fig = px.area(
-        x=fpr, y=tpr,
-        title=f'ROC Curve (AUC={auc(fpr, tpr):.4f})',
-        labels=dict(x='False Positive Rate', y='True Positive Rate'),
-        width=700, height=500
-    )
-    fig.add_shape(
-        type='line', line=dict(dash='dash'),
-        x0=0, x1=1, y0=0, y1=1
-    )
-
-    fig.update_yaxes(scaleanchor="x", scaleratio=1)
-    fig.update_xaxes(constrain='domain')
-    fig.show()
+    show_roc_auc_curve(y, pred)
 
 
 def train_test_xgboost(df1, df2):
@@ -142,7 +96,7 @@ def train_test_xgboost(df1, df2):
         max_depth = trial.suggest_int('xgb_max_depth', 2, 64, log=True)
         max_leaves = trial.suggest_int('xgb_max_leaves', 5, 20)
         n_estimators = trial.suggest_int('xgb_n_estimators', 100, 200)
-        learning_rate = trial.suggest_float('xgb_learning_rate', 0.001, 0.5)
+        learning_rate = trial.suggest_float('xgb_learning_rate', 0.001, 0.1)
         gamma = trial.suggest_float('xgb_gamma', 1, 9)
 
         xgb_model = xgb.XGBClassifier(
@@ -172,7 +126,7 @@ def train_test_xgboost(df1, df2):
     kf = KFold(n_splits=nfolds, random_state=1337, shuffle=True)
     labels = ['Team1_win', 'Team2_win']
 
-    xgb_clf = xgb.XGBClassifier(max_depth=22, max_leaves=15, n_estimators=120, learning_rate=0.4, gamma=6.23)
+    xgb_clf = xgb.XGBClassifier(max_depth=2, max_leaves=10, n_estimators=150, learning_rate=0.02, gamma=2.8)
     train_and_test_model(xgb_clf, X_train, y_train, X_test, y_test, kf, ntrain, ntest, nclass, nfolds, labels)
 
 
@@ -207,15 +161,15 @@ def train_test_catboost(df1, df2):
         score = cross_val_score(cat_model, x, y, cv=5).mean()
         return score
 
-    # study = optuna.create_study(direction='maximize')
-    # study.optimize(objective, n_trials=100)
-    # trial = study.best_trial
-    # print(f'best score = {trial.value}')
-    # print(f'best params: ')
-    # for key, value in trial.params.items():
-    #     print(f'{key} {value}')
-    #
-    # optuna.visualization.plot_param_importances(study)
+    study = optuna.create_study(direction='maximize')
+    study.optimize(objective, n_trials=30)
+    trial = study.best_trial
+    print(f'best score = {trial.value}')
+    print(f'best params: ')
+    for key, value in trial.params.items():
+        print(f'{key} {value}')
+
+    optuna.visualization.plot_param_importances(study)
 
     ntrain = X_train.shape[0]
     ntest = X_test.shape[0]
@@ -229,9 +183,8 @@ def train_test_catboost(df1, df2):
     train_and_test_model(cat_clf, X_train, y_train, X_test, y_test, kf, ntrain, ntest, nclass, nfolds, labels)
 
 
-def train_test_nn(df1, df2, epochs=100, batch_size=64, lr = 0.001):
-
-    X, y = preprocess_data(df1, df2)
+def train_test_nn(train_df, players_df, epochs=100, batch_size=64, lr = 0.001):
+    X, y = preprocess_data(train, players)
 
     print(f'X data = {X}')
     print(f'y data = {y}')
@@ -300,8 +253,8 @@ def train_test_nn(df1, df2, epochs=100, batch_size=64, lr = 0.001):
     print(confusion_matrix(y_test, y_pred_list))
 
 
-def train_test_tabpfn(df1, df2):
-    X, y = preprocess_data(df1, df2)
+def train_test_tabpfn(train, players):
+    X, y = preprocess_data(train, players)
 
     lsvc = LinearSVC(C=0.01, penalty='l1', dual=False, max_iter=15000).fit(X, y.values.ravel())
 
@@ -312,12 +265,7 @@ def train_test_tabpfn(df1, df2):
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.fit_transform(X_test)
 
-
-    # X_train_new = SelectKBest(chi2, k=64).fit_transform(X_train_scaled, y_train)
-    # X_test_new = SelectKBest(chi2, k=64).fit_transform(X_test_scaled, y_test)
-
     classifier = TabPFNClassifier(device='cpu', N_ensemble_configurations=32)
-    classifier.train(X_train, y_train)
     classifier.fit(X_train_scaled, y_train)
 
     y_eval, p_eval = classifier.predict(X_test_scaled, return_winning_probability=True)
@@ -331,13 +279,13 @@ def train_test_tabpfn(df1, df2):
 
 
 if __name__ == '__main__':
-    train = pd.read_csv('train.csv')
-    players = pd.read_csv('players_feats.csv')
+    train = pd.read_csv('data/train.csv')
+    players = pd.read_csv('data/players_feats.csv')
 
-    train_test_xgboost(train, players)
+    # train_test_xgboost(train, players)
     # train_test_nn(train, players)
     # train_test_tabpfn(train, players)
-    # train_test_catboost(train, players)
+    train_test_catboost(train, players)
 
 
 
