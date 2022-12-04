@@ -29,13 +29,13 @@ class TestData(Dataset):
 class BinaryNN(nn.Module):
     def __init__(self):
         super(BinaryNN, self).__init__()
-        self.layer_1 = nn.Linear(53, 53)
-        self.layer_2 = nn.Linear(53, 26)
+        self.layer_1 = nn.Linear(52, 52)
+        self.layer_2 = nn.Linear(52, 26)
         self.layer_out = nn.Linear(26, 1)
 
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(p=0.1)
-        self.batchnorm1 = nn.BatchNorm1d(53)
+        self.batchnorm1 = nn.BatchNorm1d(52)
         self.batchnorm2 = nn.BatchNorm1d(26)
 
     def forward(self, inputs):

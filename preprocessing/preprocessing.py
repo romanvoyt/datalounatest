@@ -1,6 +1,6 @@
 import pandas as pd
 
-def preprocess_data(train_df, players_df):
+def preprocess_data(train_df, players_df, test_df):
     p1_df = players_df.iloc[:, 1:25]
     p2_df = players_df.iloc[:, 26:50]
     p3_df = players_df.iloc[:, 51:75]
@@ -35,36 +35,14 @@ def preprocess_data(train_df, players_df):
     team2_df = avg_df[:][1::2]
 
     teams_df = pd.merge(team1_df, team2_df, on=['map_id'])
-    result_df = pd.merge(train_df, teams_df, on=['map_id'])
+    train_df = pd.merge(train_df, teams_df, on=['map_id'])
 
     encode_maps = {
         "map_name": {"Ancient": 0, "Inferno": 1, "Nuke": 2, "Mirage": 3, "Overpass": 4, "Dust2": 5, "Vertigo": 6}}
 
-    result_df = result_df.replace(encode_maps)
+    train_df = train_df.replace(encode_maps)
 
-    y = result_df['who_win']
-    result_df.drop(['who_win'], inplace=True, axis=1)
-    X = result_df
+    test_df_new = pd.merge(test_df, teams_df, on=['map_id'])
+    test_df_new = test_df_new.replace(encode_maps)
 
-
-    # result = pd.merge(df1, df2, on=['map_id'])
-    # result.info()
-    # team1_df = result[:][::2]
-    # team2_df = result[:][1::2]
-    # preprocessed_df = pd.merge(team1_df, team2_df, on=['map_id'])
-    # print(preprocessed_df.info())
-    # preprocessed_df.isnull().values.any().sum()
-    # preprocessed_df.dropna(inplace=True)
-    # preprocessed_df = pd.get_dummies(preprocessed_df, columns=["map_name_x_x"], prefix_sep="_", drop_first=True)
-    # print(preprocessed_df.head())
-    # y = pd.DataFrame(preprocessed_df['who_win_x'])
-    # print(f'{y.shape} y shape')
-    # preprocessed_df.drop(
-    #     ['map_id', 'team1_id_x', 'team1_id_y', 'team2_id_x', 'team2_id_y', 'who_win_x', 'who_win_y', 'map_name_x_y',
-    #      'map_name_y_x', 'map_name_y_y', 'p1_id_x', 'p2_id_x', 'p3_id_x',
-    #      'p3_id_x', 'p4_id_x', 'p5_id_x', 'p1_id_y', 'p2_id_y', 'p3_id_y',
-    #      'p3_id_y', 'p4_id_y', 'p5_id_y'], inplace=True, axis=1)
-    #
-    # X = pd.DataFrame(preprocessed_df)
-
-    return X, y
+    return train_df, test_df_new

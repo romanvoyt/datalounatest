@@ -1,41 +1,31 @@
-import pandas as pd
+import matplotlib.pyplot as plt
 import numpy as np
-import plotly.express as px
-
 import optuna
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-import matplotlib.pyplot as plt
-
-from sklearn.model_selection import train_test_split
-from sklearn.model_selection import cross_val_score, KFold
-from sklearn.metrics import roc_curve, auc
-from sklearn.feature_selection import SelectFromModel
-
-# classification models
-from sklearn.svm import LinearSVC
 import xgboost as xgb
 from catboost import CatBoostClassifier
-from tabpfn import TabPFNClassifier
-
-# evaluation metrics
-from sklearn.metrics import confusion_matrix
-from sklearn.metrics import f1_score
+from sklearn.feature_selection import SelectFromModel
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import classification_report
-from sklearn.feature_selection import mutual_info_classif, f_classif
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import f1_score
+from sklearn.model_selection import cross_val_score, KFold
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import LinearSVC
+from tabpfn import TabPFNClassifier
+from torch.utils.data import DataLoader
 
-from neuralnet. binary_feedforward_net import BinaryNN, TrainData, TestData, binary_acc
-from utils.visualization import show_roc_auc_curve
+# local packages
+from neuralnet.binary_feedforward_net import BinaryNN, TrainData, TestData, binary_acc
 from preprocessing.preprocessing import preprocess_data
+from utils.visualization import show_roc_auc_curve
 
 
-def BuildModel(best_alg, x_train, y_train, x_test, kf, ntrain, ntest, nclass, nfolds):
+def build_model(best_alg, x_train, y_train, x_test, kf, ntrain, ntest, nclass, nfolds):
     Xr_train = np.zeros((ntrain, nclass))
     Xr_test = np.zeros((ntest, nclass))
     tr_ind = np.arange(ntrain)
@@ -51,11 +41,11 @@ def BuildModel(best_alg, x_train, y_train, x_test, kf, ntrain, ntest, nclass, nf
 
 
 def train_and_test_model(model, x_train, y_train, x_test, y_test, kf, ntrain, ntest, nclass, nfolds, labels):
-    pred_train, pred_test = BuildModel(model, x_train, y_train, x_test, kf, ntrain, ntest, nclass,
-                                       nfolds)
+    pred_train, pred_test = build_model(model, x_train, y_train, x_test, kf, ntrain, ntest, nclass,
+                                        nfolds)
     print(pred_test.shape)
     print(pred_train.shape)
-    print(pred_train[:,1].shape)
+    print(pred_train[:, 1].shape)
     thresholds = np.linspace(0.01, 0.9, 100)
     f1_sc = np.array([f1_score(y_train, pred_train[:, 1] > thr) for thr in thresholds])
     plt.figure(figsize=(12, 8))
@@ -81,8 +71,11 @@ def show_accuracy(Xr, y, labels, best, nclass):
     show_roc_auc_curve(y, pred)
 
 
-def train_test_xgboost(df1, df2):
-    X, y = preprocess_data(df1, df2)
+def train_test_xgboost(train, players, test):
+    train_df, test_df = preprocess_data(train, players, test)
+    y = train_df['who_win']
+    train_df.drop(['who_win'], inplace=True, axis=1)
+    X = train_df
 
     print(f'X data = {X}')
     print(f'y data = {y}')
@@ -130,8 +123,11 @@ def train_test_xgboost(df1, df2):
     train_and_test_model(xgb_clf, X_train, y_train, X_test, y_test, kf, ntrain, ntest, nclass, nfolds, labels)
 
 
-def train_test_catboost(df1, df2):
-    X, y = preprocess_data(df1, df2)
+def train_test_catboost(train, players, test):
+    train_df, test_df = preprocess_data(train, players, test)
+    y = train_df['who_win']
+    train_df.drop(['who_win'], inplace=True, axis=1)
+    X = train_df
 
     print(f'X data = {X}')
     print(f'y data = {y}')
@@ -161,15 +157,15 @@ def train_test_catboost(df1, df2):
         score = cross_val_score(cat_model, x, y, cv=5).mean()
         return score
 
-    study = optuna.create_study(direction='maximize')
-    study.optimize(objective, n_trials=30)
-    trial = study.best_trial
-    print(f'best score = {trial.value}')
-    print(f'best params: ')
-    for key, value in trial.params.items():
-        print(f'{key} {value}')
-
-    optuna.visualization.plot_param_importances(study)
+    # study = optuna.create_study(direction='maximize')
+    # study.optimize(objective, n_trials=30)
+    # trial = study.best_trial
+    # print(f'best score = {trial.value}')
+    # print(f'best params: ')
+    # for key, value in trial.params.items():
+    #     print(f'{key} {value}')
+    #
+    # optuna.visualization.plot_param_importances(study)
 
     ntrain = X_train.shape[0]
     ntest = X_test.shape[0]
@@ -178,13 +174,16 @@ def train_test_catboost(df1, df2):
     kf = KFold(n_splits=nfolds, random_state=1337, shuffle=True)
     labels = ['Team1_win', 'Team2_win']
 
-    cat_clf = CatBoostClassifier(iterations=67, learning_rate=0.07,
-                                 early_stopping_rounds=2, depth=1, l2_leaf_reg=10, random_strength=3.13 )
+    cat_clf = CatBoostClassifier(iterations=70, learning_rate=0.05,
+                                 early_stopping_rounds=10, depth=10, l2_leaf_reg=5, random_strength=6)
     train_and_test_model(cat_clf, X_train, y_train, X_test, y_test, kf, ntrain, ntest, nclass, nfolds, labels)
 
 
-def train_test_nn(train_df, players_df, epochs=100, batch_size=64, lr = 0.001):
-    X, y = preprocess_data(train, players)
+def train_test_nn(train, players, test, epochs=100, batch_size=64, lr=0.001):
+    train_df, test_df = preprocess_data(train, players, test)
+    y = train_df['who_win']
+    train_df.drop(['who_win'], inplace=True, axis=1)
+    X = train_df
 
     print(f'X data = {X}')
     print(f'y data = {y}')
@@ -194,7 +193,6 @@ def train_test_nn(train_df, players_df, epochs=100, batch_size=64, lr = 0.001):
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.fit_transform(X_test)
-
 
     train_data = TrainData(torch.FloatTensor(X_train_scaled),
                            torch.FloatTensor(y_train.values.ravel()))
@@ -214,7 +212,7 @@ def train_test_nn(train_df, players_df, epochs=100, batch_size=64, lr = 0.001):
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
     model.train()
-    for e in range(1, epochs+1):
+    for e in range(1, epochs + 1):
         epoch_loss = 0
         epoch_acc = 0
 
@@ -232,8 +230,8 @@ def train_test_nn(train_df, players_df, epochs=100, batch_size=64, lr = 0.001):
             epoch_loss += loss.item()
             epoch_acc += acc.item()
 
-        print(f'Epoch {e+0:03} | Loss: {epoch_loss/len(train_loader):.5f} '
-              f'| Acc: {epoch_acc/len(train_loader):.3f}')
+        print(f'Epoch {e + 0:03} | Loss: {epoch_loss / len(train_loader):.5f} '
+              f'| Acc: {epoch_acc / len(train_loader):.3f}')
 
     y_pred_list = []
     model.eval()
@@ -253,39 +251,46 @@ def train_test_nn(train_df, players_df, epochs=100, batch_size=64, lr = 0.001):
     print(confusion_matrix(y_test, y_pred_list))
 
 
-def train_test_tabpfn(train, players):
-    X, y = preprocess_data(train, players)
+def train_test_tabpfn(train, players, test):
+    train_df, test_df = preprocess_data(train, players, test)
+    y = train_df['who_win']
+    train_df.drop(['who_win'], inplace=True, axis=1)
+    X = train_df
 
-    lsvc = LinearSVC(C=0.01, penalty='l1', dual=False, max_iter=15000).fit(X, y.values.ravel())
+    lsvc = LinearSVC(C=0.01, penalty='l1', dual=False, max_iter=25000).fit(X, y.values.ravel())
 
     model = SelectFromModel(lsvc, prefit=True)
     X_new = model.fit_transform(X)
     X_train, X_test, y_train, y_test = train_test_split(X_new, y.values.ravel(), test_size=0.33, random_state=1337)
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.fit_transform(X_test)
 
-    classifier = TabPFNClassifier(device='cpu', N_ensemble_configurations=32)
-    classifier.fit(X_train_scaled, y_train)
+    classifier = TabPFNClassifier(device='cpu', N_ensemble_configurations=8)
+    classifier.fit(X_train, y_train)
 
-    y_eval, p_eval = classifier.predict(X_test_scaled, return_winning_probability=True)
+    y_eval, p_eval = classifier.predict(X_test, return_winning_probability=True)
 
     print('Accuracy', accuracy_score(y_test, y_eval))
 
     show_roc_auc_curve(y_test, y_eval)
 
+    print(f'test split data: \n')
     print(classification_report(y_test, y_eval))
     print(confusion_matrix(y_test, y_eval))
+
+    test_df.drop(['index'], inplace=True, axis=1)
+    val_df = model.fit_transform(test_df)
+
+    y_eval, p_eval = classifier.predict(val_df, return_winning_probability=True)
+
+    predictions = pd.DataFrame(y_eval, columns=['y_hat'])
+    predictions.to_csv('predictions.csv')
 
 
 if __name__ == '__main__':
     train = pd.read_csv('data/train.csv')
+    test = pd.read_csv('data/test.csv')
     players = pd.read_csv('data/players_feats.csv')
 
-    # train_test_xgboost(train, players)
-    # train_test_nn(train, players)
-    # train_test_tabpfn(train, players)
-    train_test_catboost(train, players)
-
-
-
+    train_test_xgboost(train, players, test)
+    train_test_nn(train, players, test)
+    train_test_tabpfn(train, players, test)
+    train_test_catboost(train, players, test)
