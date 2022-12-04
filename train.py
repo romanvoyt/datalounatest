@@ -4,37 +4,39 @@ import plotly.express as px
 
 import optuna
 from pandas.core.common import random_state
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
 
 from sklearn.feature_selection import SelectKBest, chi2
 from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import confusion_matrix, classification_report
 import matplotlib.pyplot as plt
 
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
-from sklearn.model_selection import GridSearchCV, cross_val_score, StratifiedKFold, learning_curve, KFold
-from sklearn.model_selection import RandomizedSearchCV
-from sklearn.metrics import balanced_accuracy_score
+from sklearn.model_selection import cross_val_score, KFold
+from sklearn.metrics import roc_curve, auc
+from sklearn.feature_selection import SelectFromModel
 
 # classification models
-from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.ensemble import BaggingClassifier
 from sklearn.tree import DecisionTreeClassifier
+from sklearn.svm import LinearSVC
 import xgboost as xgb
 from catboost import CatBoostClassifier
+from tabpfn import TabPFNClassifier
 
 # evaluation metrics
-from sklearn import metrics
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import f1_score
 from sklearn.metrics import accuracy_score
-from sklearn.metrics import precision_score
-from sklearn.metrics import recall_score
 from sklearn.metrics import classification_report
 from sklearn.feature_selection import mutual_info_classif, f_classif
+
+from neuralnet. binary_feedforward_net import BinaryNN, TrainData, TestData, binary_acc
 
 
 def preprocess_data(df1, df2):
@@ -100,6 +102,23 @@ def show_accuracy(Xr, y, labels, best, nclass):
     print(f'pred = {pred}')
     print(classification_report(y, pred, target_names=labels, digits=4, zero_division=True))
     print(confusion_matrix(y, pred, labels=range(nclass)))
+
+    fpr, tpr, thresholds = roc_curve(y, pred)
+
+    fig = px.area(
+        x=fpr, y=tpr,
+        title=f'ROC Curve (AUC={auc(fpr, tpr):.4f})',
+        labels=dict(x='False Positive Rate', y='True Positive Rate'),
+        width=700, height=500
+    )
+    fig.add_shape(
+        type='line', line=dict(dash='dash'),
+        x0=0, x1=1, y0=0, y1=1
+    )
+
+    fig.update_yaxes(scaleanchor="x", scaleratio=1)
+    fig.update_xaxes(constrain='domain')
+    fig.show()
 
 
 def train_test_xgboost(df1, df2):
@@ -170,27 +189,27 @@ def train_test_catboost(df1, df2):
         l2_leaf_reg = trial.suggest_int('catboost_l2_leaf_reg', 1, 10)
         random_strength = trial.suggest_float('catboost_random_strength', 0.01, 10)
 
-        cat_model = CatBoostClassifier(
-            iterations=iterations,
-            learning_rate=learning_rate,
-            early_stopping_rounds=early_stopping_rounds,
-            depth=depth,
-            l2_leaf_reg=l2_leaf_reg,
-            random_strength=random_strength,
+    #     cat_model = CatBoostClassifier(
+    #         iterations=iterations,
+    #         learning_rate=learning_rate,
+    #         early_stopping_rounds=early_stopping_rounds,
+    #         depth=depth,
+    #         l2_leaf_reg=l2_leaf_reg,
+    #         random_strength=random_strength,
+    #
+    #     )
+    #     score = cross_val_score(cat_model, x, y, cv=5).mean()
+    #     return score
+    #
+    # study = optuna.create_study(direction='maximize')
+    # study.optimize(objective, n_trials=100)
+    # trial = study.best_trial
+    # print(f'best score = {trial.value}')
+    # print(f'best params: ')
+    # for key, value in trial.params.items():
+    #     print(f'{key} {value}')
 
-        )
-        score = cross_val_score(cat_model, x, y, cv=5).mean()
-        return score
-
-    study = optuna.create_study(direction='maximize')
-    study.optimize(objective, n_trials=100)
-    trial = study.best_trial
-    print(f'best score = {trial.value}')
-    print(f'best params: ')
-    for key, value in trial.params.items():
-        print(f'{key} {value}')
-
-    optuna.visualization.plot_param_importances(study)
+    # optuna.visualization.plot_param_importances(study)
 
     ntrain = X_train.shape[0]
     ntest = X_test.shape[0]
@@ -199,21 +218,12 @@ def train_test_catboost(df1, df2):
     kf = KFold(n_splits=nfolds, random_state=1337, shuffle=True)
     labels = ['Team1_win', 'Team2_win']
 
-    # xgb_clf = CatBoostClassifier(max_depth=22, max_leaves=15, n_estimators=120, learning_rate=0.4, gamma=6.23)
-    # train_and_test_model(xgb_clf, X_train, y_train, X_test, y_test, kf, ntrain, ntest, nclass, nfolds, labels)
+    cat_clf = CatBoostClassifier(iterations=67, learning_rate=0.07,
+                                 early_stopping_rounds=2, depth=1, l2_leaf_reg=10, random_strength=3.13 )
+    train_and_test_model(cat_clf, X_train, y_train, X_test, y_test, kf, ntrain, ntest, nclass, nfolds, labels)
 
 
-
-
-def train_test_nn(df1, df2, epochs=1000, batch_size=64, lr = 0.001):
-    import torch
-    import torch.nn as nn
-    import torch.optim as optim
-    from torch.utils.data import Dataset, DataLoader
-
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.model_selection import train_test_split
-    from sklearn.metrics import confusion_matrix, classification_report
+def train_test_nn(df1, df2, epochs=100, batch_size=64, lr = 0.001):
 
     X, y = preprocess_data(df1, df2)
 
@@ -226,26 +236,6 @@ def train_test_nn(df1, df2, epochs=1000, batch_size=64, lr = 0.001):
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.fit_transform(X_test)
 
-    class TrainData(Dataset):
-        def __init__(self, X_data, y_data):
-            self.X_data = X_data
-            self.y_data = y_data
-
-        def __getitem__(self, index):
-            return self.X_data[index], self.y_data[index]
-
-        def __len__(self):
-            return len(self.X_data)
-
-    class TestData(Dataset):
-        def __init__(self, X_data):
-            self.X_data = X_data
-
-        def __getitem__(self, index):
-            return self.X_data[index]
-
-        def __len__(self):
-            return len(self.X_data)
 
     train_data = TrainData(torch.FloatTensor(X_train_scaled),
                            torch.FloatTensor(y_train.values.ravel()))
@@ -255,33 +245,6 @@ def train_test_nn(df1, df2, epochs=1000, batch_size=64, lr = 0.001):
     train_loader = DataLoader(dataset=train_data, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(dataset=test_data, batch_size=1)
 
-
-    class BinaryNN(nn.Module):
-        def __init__(self):
-            super(BinaryNN, self).__init__()
-            self.layer_1 = nn.Linear(248, 496)
-            self.layer_2 = nn.Linear(496, 496)
-            self.layer_3 = nn.Linear(496, 124)
-            self.layer_out = nn.Linear(124, 1)
-
-            self.relu = nn.ReLU()
-            self.dropout = nn.Dropout(p=0.1)
-            self.batchnorm1 = nn.BatchNorm1d(496)
-            self.batchnorm2 = nn.BatchNorm1d(496)
-            self.batchnorm3 = nn.BatchNorm1d(124)
-
-        def forward(self, inputs):
-            x = self.relu(self.layer_1(inputs))
-            x = self.batchnorm1(x)
-            x = self.relu(self.layer_2(x))
-            x = self.batchnorm2(x)
-            x = self.relu(self.layer_3(x))
-            x = self.batchnorm3(x)
-            x = self.dropout(x)
-            x = self.layer_out(x)
-
-            return x
-
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     print(device)
 
@@ -290,15 +253,6 @@ def train_test_nn(df1, df2, epochs=1000, batch_size=64, lr = 0.001):
     print(model)
     criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
-
-    def binary_acc(y_pred, y_test):
-        y_pred_tag = torch.round(torch.sigmoid(y_pred))
-
-        correct_results_sum = (y_pred_tag == y_test).sum().float()
-        acc = correct_results_sum / y_test.shape[0]
-        acc = torch.round(acc * 100)
-
-        return acc
 
     model.train()
     for e in range(1, epochs+1):
@@ -334,18 +288,41 @@ def train_test_nn(df1, df2, epochs=1000, batch_size=64, lr = 0.001):
 
     y_pred_list = [a.squeeze().tolist() for a in y_pred_list]
 
+    fpr, tpr, thresholds = roc_curve(y_test, y_pred_list)
+
+    fig = px.area(
+        x=fpr, y=tpr,
+        title=f'ROC Curve (AUC={auc(fpr, tpr):.4f})',
+        labels=dict(x='False Positive Rate', y='True Positive Rate'),
+        width=700, height=500
+    )
+    fig.add_shape(
+        type='line', line=dict(dash='dash'),
+        x0=0, x1=1, y0=0, y1=1
+    )
+
+    fig.update_yaxes(scaleanchor="x", scaleratio=1)
+    fig.update_xaxes(constrain='domain')
+    fig.show()
+
     print(classification_report(y_test, y_pred_list))
     print(confusion_matrix(y_test, y_pred_list))
 
 
 def train_test_tabpfn(df1, df2):
-    from tabpfn import TabPFNClassifier
     X, y = preprocess_data(df1, df2)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.33, random_state=1337)
-    classifier = TabPFNClassifier(device='cuda:0', N_ensemble_configurations=32)
-    classifier.fit(X_train, y_train)
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.fit_transform(X_test)
 
-    y_eval, p_eval = classifier.predict(X_test, return_winning_probability=True)
+    X_train_new = SelectKBest(chi2, k=64).fit_transform(X_train_scaled, y_train)
+    X_test_new = SelectKBest(chi2, k=64).fit_transform(X_test_scaled, y_test)
+
+    classifier = TabPFNClassifier(device='cuda:0', N_ensemble_configurations=32)
+    classifier.fit(X_train_new, y_train)
+
+    y_eval, p_eval = classifier.predict(X_test_new, return_winning_probability=True)
 
     print('Accuracy', accuracy_score(y_test, y_eval))
 
@@ -357,9 +334,9 @@ if __name__ == '__main__':
     # train_test_xgboost(train, players)
     # train_test_nn(train, players)
 
-    # train_test_tabpfn(train, players)
+    train_test_tabpfn(train, players)
 
-    train_test_catboost(train, players)
+    # train_test_catboost(train, players)
 
 
 
