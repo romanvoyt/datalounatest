@@ -37,6 +37,7 @@ from sklearn.metrics import classification_report
 from sklearn.feature_selection import mutual_info_classif, f_classif
 
 from neuralnet. binary_feedforward_net import BinaryNN, TrainData, TestData, binary_acc
+from utils.visualization import show_roc_auc_curve
 
 
 def preprocess_data(df1, df2):
@@ -81,6 +82,9 @@ def BuildModel(best_alg, x_train, y_train, x_test, kf, ntrain, ntest, nclass, nf
 def train_and_test_model(model, x_train, y_train, x_test, y_test, kf, ntrain, ntest, nclass, nfolds, labels):
     pred_train, pred_test = BuildModel(model, x_train, y_train, x_test, kf, ntrain, ntest, nclass,
                                        nfolds)
+    print(pred_test.shape)
+    print(pred_train.shape)
+    print(pred_train[:,1].shape)
     thresholds = np.linspace(0.01, 0.9, 100)
     f1_sc = np.array([f1_score(y_train, pred_train[:, 1] > thr) for thr in thresholds])
     plt.figure(figsize=(12, 8))
@@ -90,6 +94,8 @@ def train_and_test_model(model, x_train, y_train, x_test, y_test, kf, ntrain, nt
     best_lr = thresholds[f1_sc.argmax()]
     show_accuracy(pred_train[:, 1], y_train, labels, best_lr, nclass)
     show_accuracy(pred_test[:, 1], y_test, labels, best_lr, nclass)
+    show_roc_auc_curve(y_train, pred_train[:, 1])
+    show_roc_auc_curve(y_test, pred_test[:, 1])
 
 
 def show_accuracy(Xr, y, labels, best, nclass):
@@ -150,7 +156,7 @@ def train_test_xgboost(df1, df2):
         return score
 
     study = optuna.create_study(direction='maximize')
-    study.optimize(objective, n_trials=10)
+    study.optimize(objective, n_trials=100)
     trial = study.best_trial
     print(f'best score = {trial.value}')
     print(f'best params: ')
@@ -189,18 +195,18 @@ def train_test_catboost(df1, df2):
         l2_leaf_reg = trial.suggest_int('catboost_l2_leaf_reg', 1, 10)
         random_strength = trial.suggest_float('catboost_random_strength', 0.01, 10)
 
-    #     cat_model = CatBoostClassifier(
-    #         iterations=iterations,
-    #         learning_rate=learning_rate,
-    #         early_stopping_rounds=early_stopping_rounds,
-    #         depth=depth,
-    #         l2_leaf_reg=l2_leaf_reg,
-    #         random_strength=random_strength,
-    #
-    #     )
-    #     score = cross_val_score(cat_model, x, y, cv=5).mean()
-    #     return score
-    #
+        cat_model = CatBoostClassifier(
+            iterations=iterations,
+            learning_rate=learning_rate,
+            early_stopping_rounds=early_stopping_rounds,
+            depth=depth,
+            l2_leaf_reg=l2_leaf_reg,
+            random_strength=random_strength,
+
+        )
+        score = cross_val_score(cat_model, x, y, cv=5).mean()
+        return score
+
     # study = optuna.create_study(direction='maximize')
     # study.optimize(objective, n_trials=100)
     # trial = study.best_trial
@@ -208,7 +214,7 @@ def train_test_catboost(df1, df2):
     # print(f'best params: ')
     # for key, value in trial.params.items():
     #     print(f'{key} {value}')
-
+    #
     # optuna.visualization.plot_param_importances(study)
 
     ntrain = X_train.shape[0]
@@ -288,22 +294,7 @@ def train_test_nn(df1, df2, epochs=100, batch_size=64, lr = 0.001):
 
     y_pred_list = [a.squeeze().tolist() for a in y_pred_list]
 
-    fpr, tpr, thresholds = roc_curve(y_test, y_pred_list)
-
-    fig = px.area(
-        x=fpr, y=tpr,
-        title=f'ROC Curve (AUC={auc(fpr, tpr):.4f})',
-        labels=dict(x='False Positive Rate', y='True Positive Rate'),
-        width=700, height=500
-    )
-    fig.add_shape(
-        type='line', line=dict(dash='dash'),
-        x0=0, x1=1, y0=0, y1=1
-    )
-
-    fig.update_yaxes(scaleanchor="x", scaleratio=1)
-    fig.update_xaxes(constrain='domain')
-    fig.show()
+    show_roc_auc_curve(y_test, y_pred_list)
 
     print(classification_report(y_test, y_pred_list))
     print(confusion_matrix(y_test, y_pred_list))
@@ -326,28 +317,14 @@ def train_test_tabpfn(df1, df2):
     # X_test_new = SelectKBest(chi2, k=64).fit_transform(X_test_scaled, y_test)
 
     classifier = TabPFNClassifier(device='cpu', N_ensemble_configurations=32)
+    classifier.train(X_train, y_train)
     classifier.fit(X_train_scaled, y_train)
 
     y_eval, p_eval = classifier.predict(X_test_scaled, return_winning_probability=True)
 
     print('Accuracy', accuracy_score(y_test, y_eval))
 
-    fpr, tpr, thresholds = roc_curve(y_test, y_eval)
-
-    fig = px.area(
-        x=fpr, y=tpr,
-        title=f'ROC Curve (AUC={auc(fpr, tpr):.4f})',
-        labels=dict(x='False Positive Rate', y='True Positive Rate'),
-        width=700, height=500
-    )
-    fig.add_shape(
-        type='line', line=dict(dash='dash'),
-        x0=0, x1=1, y0=0, y1=1
-    )
-
-    fig.update_yaxes(scaleanchor="x", scaleratio=1)
-    fig.update_xaxes(constrain='domain')
-    fig.show()
+    show_roc_auc_curve(y_test, y_eval)
 
     print(classification_report(y_test, y_eval))
     print(confusion_matrix(y_test, y_eval))
@@ -357,11 +334,9 @@ if __name__ == '__main__':
     train = pd.read_csv('train.csv')
     players = pd.read_csv('players_feats.csv')
 
-    # train_test_xgboost(train, players)
+    train_test_xgboost(train, players)
     # train_test_nn(train, players)
-
-    train_test_tabpfn(train, players)
-
+    # train_test_tabpfn(train, players)
     # train_test_catboost(train, players)
 
 
